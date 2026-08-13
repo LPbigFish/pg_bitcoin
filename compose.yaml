@@ -1,0 +1,130 @@
+services:
+  bitcoind:
+    image: docker.io/bitcoin/bitcoin:31.1-alpine@sha256:6b7ab829b25388ef523c164f027e69bdac341e6b85b6c4794b9fd8839dcd91f1
+    command:
+      - -regtest
+      - -server=1
+      - -txindex=1
+      - -fallbackfee=0.0001
+      - -listen=0
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -rpcport=18443
+      - -rpcuser=pg_bitcoin
+      - -rpcpassword=pg_bitcoin
+      - -mocktime=1700061200
+      - -printtoconsole=1
+    ports:
+      - "127.0.0.1:18443:18443"
+    volumes:
+      - bitcoin-data:/home/bitcoin/.bitcoin
+    healthcheck:
+      test: ["CMD", "bitcoin-cli", "-regtest", "-rpcconnect=127.0.0.1", "-rpcport=18443", "-rpcuser=pg_bitcoin", "-rpcpassword=pg_bitcoin", "getblockchaininfo"]
+      interval: 1s
+      timeout: 5s
+      retries: 60
+
+  fixture:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: regtest-tools
+    depends_on:
+      bitcoind:
+        condition: service_healthy
+    environment:
+      BITCOIN_RPC_HOST: bitcoind
+      BITCOIN_RPC_PORT: "18443"
+      BITCOIN_RPC_USER: pg_bitcoin
+      BITCOIN_RPC_PASSWORD: pg_bitcoin
+      FULCRUM_URL: tcp://127.0.0.1:60401
+      REGTEST_STATE_DIR: /state
+    volumes:
+      - ./.regtest:/state:Z
+
+  fulcrum:
+    image: docker.io/cculianu/fulcrum:v2.1.1@sha256:72d8b2f9142f83a51c6c3ba2f6931b496a08bede610b28ef2315b87aa1e3bb64
+    command:
+      - Fulcrum
+      - --bitcoind=bitcoind:18443
+      - --tcp=0.0.0.0:50001
+      - --admin=8000
+      - --polltime=0.5
+      - --db_mem=128
+      - --ts-format=utc
+    depends_on:
+      fixture:
+        condition: service_completed_successfully
+    environment:
+      RPCUSER: pg_bitcoin
+      RPCPASSWORD: pg_bitcoin
+    ports:
+      - "127.0.0.1:60401:50001"
+    volumes:
+      - fulcrum-data:/data
+    healthcheck:
+      test: ["CMD", "FulcrumAdmin", "-p", "8000", "getinfo"]
+      interval: 1s
+      timeout: 5s
+      retries: 120
+
+  mempool-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: mempool-backend
+    depends_on:
+      fulcrum:
+        condition: service_healthy
+    environment:
+      MEMPOOL_NETWORK: regtest
+      MEMPOOL_BACKEND: electrum
+      CORE_RPC_HOST: bitcoind
+      CORE_RPC_PORT: "18443"
+      CORE_RPC_USERNAME: pg_bitcoin
+      CORE_RPC_PASSWORD: pg_bitcoin
+      ELECTRUM_HOST: fulcrum
+      ELECTRUM_PORT: "50001"
+      ELECTRUM_TLS_ENABLED: "false"
+      DATABASE_ENABLED: "false"
+      STATISTICS_ENABLED: "false"
+      MEMPOOL_INDEXING_BLOCKS_AMOUNT: "0"
+      MEMPOOL_AUDIT: "false"
+      MEMPOOL_AUTOMATIC_POOLS_UPDATE: "false"
+      MEMPOOL_CACHE_ENABLED: "false"
+      FIAT_PRICE_ENABLED: "false"
+      MAXMIND_ENABLED: "false"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8999/api/v1/backend-info').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  mempool-web:
+    image: docker.io/mempool/frontend:v3.3.1@sha256:0a162e7e0d26a01e9686ddf69c96c4beae5fe10b0daa1020f3d392e033c058f1
+    depends_on:
+      mempool-api:
+        condition: service_healthy
+    environment:
+      FRONTEND_HTTP_PORT: "8080"
+      BACKEND_MAINNET_HTTP_HOST: mempool-api
+      BACKEND_MAINNET_HTTP_PORT: "8999"
+      MAINNET_ENABLED: "false"
+      REGTEST_ENABLED: "true"
+      ROOT_NETWORK: regtest
+      MINING_DASHBOARD: "false"
+      AUDIT: "false"
+      HISTORICAL_PRICE: "false"
+      ACCELERATOR: "false"
+      ACCELERATOR_BUTTON: "false"
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/v1/backend-info >/dev/null"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  bitcoin-data:
+  fulcrum-data:

@@ -1,0 +1,6 @@
+**
+!docker/
+!docker/Dockerfile
+!scripts/
+!scripts/init-regtest.sh
+!scripts/check-regtest.sh
