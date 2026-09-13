@@ -2,5 +2,5 @@
 !docker/
 !docker/Dockerfile
 !scripts/
-!scripts/init-regtest.sh
-!scripts/check-regtest.sh
+!scripts/init-regtest.py
+!scripts/check-regtest.py

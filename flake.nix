@@ -40,7 +40,9 @@
             clang
             flex
             pkg-config
+            python3
             rust
+            lldb
           ];
 
           buildInputs = with pkgs; [
@@ -62,6 +64,7 @@
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           MEMPOOL_URL = "http://127.0.0.1:8080";
           RUST_SRC_PATH = "${rust}/lib/rustlib/src/rust/library";
+          RUST_BACKTRACE = "1";
         };
       }
     );

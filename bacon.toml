@@ -1,0 +1,20 @@
+default_job = "check"
+
+[jobs.run]
+command = ["cargo", "pgrx", "run", "pg16"]
+need_stdout = true
+watch = ["src", "tests", "Cargo.toml"]
+on_change_strategy = "kill_then_restart"
+
+[jobs.check]
+command = ["cargo", "check", "--color", "always"]
+need_stdout = false
+
+[jobs.clippy]
+command = ["cargo", "clippy", "--color", "always"]
+need_stdout = false
+
+[jobs.pgrx-test]
+command = ["cargo", "pgrx", "test", "pg16", "--color", "always"]
+need_stdout = true
+watch = ["tests", "src", "Cargo.toml"]
