@@ -136,3 +136,22 @@ where
 
     Ok(result)
 }
+
+pub fn list_unspent(
+    address: &str,
+) -> Result<impl Iterator<Item = (String, u32, i64)>, ElectrumError> {
+    let client = get_client()
+        .as_ref()
+        .ok_or(ElectrumError::ClientUnavailable)?;
+
+    let scripthash = address_to_script(address)?;
+
+    client
+        .script_list_unspent(&scripthash)
+        .map(|unspent_vec| {
+            unspent_vec
+                .into_iter()
+                .map(|r| (r.tx_hash.to_string(), r.tx_pos as u32, r.value as i64))
+        })
+        .map_err(ElectrumError::ClientError)
+}
