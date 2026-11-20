@@ -3,31 +3,16 @@ use pgrx::prelude::*;
 
 mod electrum;
 
+mod config;
+
 mod tests;
 
-#[cfg(any(test, feature = "pg_test"))]
-pub mod pg_test {
-    #[cfg(test)]
-    use electrum_client::ElectrumApi;
-
-    pub fn setup(_options: Vec<&str>) {}
-
-    #[must_use]
-    pub fn postgresql_conf_options() -> Vec<&'static str> {
-        vec![]
-    }
-
-    #[test]
-    pub fn try_client() {
-        let client = crate::electrum::get_client();
-        assert!(client.is_some());
-        if let Some(client) = client {
-            assert!(client.ping().is_ok());
-        }
-    }
-}
-
 ::pgrx::pg_module_magic!(name, version);
+
+#[pg_guard]
+pub extern "C-unwind" fn _PG_init() {
+    config::init();
+}
 
 fn match_electrum_error(e: electrum::ElectrumError) -> ! {
     use electrum::ElectrumError::*;
@@ -53,7 +38,7 @@ fn bitcoin_ping() -> bool {
     }
 }
 
-#[pg_extern]
+#[pg_extern(name = "get_confirmed_balance")]
 fn bitcoin_get_confirmed_balance(address: String) -> i64 {
     match crate::electrum::get_balance(address.as_str()) {
         Ok((confirmed, _)) => confirmed,
@@ -61,7 +46,7 @@ fn bitcoin_get_confirmed_balance(address: String) -> i64 {
     }
 }
 
-#[pg_extern]
+#[pg_extern(name = "get_balance")]
 fn bitcoin_get_balance(
     address: String,
 ) -> TableIterator<
@@ -78,7 +63,7 @@ fn bitcoin_get_balance(
     }
 }
 
-#[pg_extern]
+#[pg_extern(name = "get_balance")]
 fn bitcoin_get_balances(
     addresses: Vec<String>,
 ) -> TableIterator<
@@ -95,7 +80,7 @@ fn bitcoin_get_balances(
     }
 }
 
-#[pg_extern]
+#[pg_extern(name = "get_history")]
 fn bitcoin_get_history(
     address: String,
 ) -> TableIterator<
@@ -112,7 +97,7 @@ fn bitcoin_get_history(
     }
 }
 
-#[pg_extern]
+#[pg_extern(name = "get_history")]
 fn bitcoin_get_histories(
     addresses: Vec<String>,
 ) -> TableIterator<
@@ -127,5 +112,45 @@ fn bitcoin_get_histories(
     match crate::electrum::get_histories(addresses) {
         Ok(history) => TableIterator::new(history),
         Err(e) => match_electrum_error(e),
+    }
+}
+
+#[pg_extern(name = "list_unspent")]
+fn bitcoin_listunspent(
+    address: String,
+) -> TableIterator<
+    'static,
+    (
+        name!(height, i64),
+        name!(tx_hash, String),
+        name!(tx_pos, i64),
+        name!(value, i64),
+    ),
+> {
+    match crate::electrum::list_unspent(&address) {
+        Ok(spent) => TableIterator::new(spent),
+        Err(e) => match_electrum_error(e),
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+pub mod pg_test {
+    #[cfg(test)]
+    use electrum_client::ElectrumApi;
+
+    pub fn setup(_options: Vec<&str>) {}
+
+    #[must_use]
+    pub fn postgresql_conf_options() -> Vec<&'static str> {
+        vec![]
+    }
+
+    #[test]
+    pub fn try_client() {
+        let client = crate::electrum::get_client();
+        assert!(client.is_some());
+        if let Some(client) = client {
+            assert!(client.ping().is_ok());
+        }
     }
 }

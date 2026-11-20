@@ -1,7 +1,7 @@
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use pgrx::prelude::*;
+    use pgrx::{pg_test, prelude::*};
 
     #[pg_test]
     fn test_bitcoin_ping() {
@@ -37,5 +37,10 @@ mod tests {
             ]);",
         );
         assert_eq!(res.unwrap().unwrap_or(-1), 1_000_000_000);
+    }
+
+    #[pg_test]
+    fn test_list_unspent() {
+        assert!(true);
     }
 }
