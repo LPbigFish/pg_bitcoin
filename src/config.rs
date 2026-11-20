@@ -56,3 +56,25 @@ pub fn init() {
         GucFlags::default(),
     );
 }
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ExtensionConfiguration(Option<String>, Network);
+
+impl ExtensionConfiguration {
+    pub fn current() -> Self {
+        Self(
+            ELECTRUM_URL
+                .get()
+                .map_or(None, |cstring| cstring.into_string().ok()),
+            NETWORK.get().to_bitcoin_network(),
+        )
+    }
+
+    pub fn get_url(&self) -> Option<String> {
+        self.0.clone()
+    }
+
+    pub fn get_network(&self) -> Network {
+        self.1
+    }
+}

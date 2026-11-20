@@ -1,42 +1,23 @@
-use std::sync::OnceLock;
-
-use bitcoin::{Address, ScriptBuf};
-use electrum_client::{Client, ElectrumApi};
+use bitcoin::{Address, Network, ScriptBuf};
+use electrum_client::ElectrumApi;
 use std::str::FromStr;
 
-#[derive(thiserror::Error, Debug)]
-pub enum ElectrumError {
-    #[error("Invalid Bitcoin address {0}")]
-    InvalidAddress(String),
-    #[error("Electrum client unavailable")]
-    ClientUnavailable,
-    #[error("Electrum client error: {0}")]
-    ClientError(#[from] electrum_client::Error),
-}
+use crate::client_wrapper::{with_client, ElectrumError};
 
-static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
-
-pub fn get_client() -> &'static Option<Client> {
-    CLIENT.get_or_init(|| Client::new("tcp://127.0.0.1:60401").ok())
-}
-
-fn address_to_script(address: &str) -> Result<ScriptBuf, ElectrumError> {
+fn address_to_script(address: &str, network: Network) -> Result<ScriptBuf, ElectrumError> {
     Address::from_str(address)
-        .map(|add| add.assume_checked())
+        .and_then(|add| add.require_network(network))
         .map(|add| add.script_pubkey())
         .map_err(|_| ElectrumError::InvalidAddress(address.to_string()))
 }
 
 pub fn get_balance(address: &str) -> Result<(i64, i64), ElectrumError> {
-    let client = get_client()
-        .as_ref()
-        .ok_or(ElectrumError::ClientUnavailable)?;
-    let script_hash = address_to_script(address)?;
-    let result = client.script_get_balance(&script_hash);
-    let tuple = result
-        .map(|res| (res.confirmed as i64, res.unconfirmed))
-        .map_err(ElectrumError::ClientError)?;
-    Ok(tuple)
+    with_client(|client, network| {
+        let script_hash = address_to_script(address, network)?;
+        let r = client.script_get_balance(&script_hash)?;
+
+        Ok((r.confirmed as i64, r.unconfirmed))
+    })
 }
 
 pub fn get_balances<I>(
@@ -45,24 +26,22 @@ pub fn get_balances<I>(
 where
     I: IntoIterator<Item = String>,
 {
-    let client = get_client()
-        .as_ref()
-        .ok_or(ElectrumError::ClientUnavailable)?;
+    let (scripts, balances) = with_client(|client, network| {
+        let scripts = addresses
+            .into_iter()
+            .map(|address| {
+                let script = address_to_script(&address, network)
+                    .map_err(|_| ElectrumError::InvalidAddress(address.to_string()))?;
+                Ok((address, script))
+            })
+            .collect::<Result<Vec<_>, ElectrumError>>()?;
 
-    let scripts = addresses
-        .into_iter()
-        .map(|address| {
-            let script = address_to_script(&address)
-                .map_err(|_| ElectrumError::InvalidAddress(address.to_string()))?;
-            Ok((address, script))
-        })
-        .collect::<Result<Vec<_>, ElectrumError>>()?;
+        let script_refs = scripts.iter().map(|s| s.1.as_script());
 
-    let script_refs = scripts.iter().map(|s| s.1.as_script());
+        let balances = client.batch_script_get_balance(script_refs)?;
 
-    let balances = client
-        .batch_script_get_balance(script_refs)
-        .map_err(ElectrumError::ClientError)?;
+        Ok((scripts, balances))
+    })?;
 
     let result = scripts
         .into_iter()
@@ -75,24 +54,20 @@ where
 pub fn get_history(
     address: &str,
 ) -> Result<impl Iterator<Item = (i32, String, Option<i64>)>, ElectrumError> {
-    let client = get_client()
-        .as_ref()
-        .ok_or(ElectrumError::ClientUnavailable)?;
+    let history = with_client(|client, network| {
+        let scripthash = address_to_script(address, network)?;
+        let r = client.script_get_history(&scripthash)?;
 
-    let scripthash = address_to_script(address)?;
+        Ok(r)
+    })?;
 
-    client
-        .script_get_history(&scripthash)
-        .map(|history| {
-            history.into_iter().map(|record| {
-                (
-                    record.height,
-                    record.tx_hash.to_string(),
-                    record.fee.map(|fee| fee as i64),
-                )
-            })
-        })
-        .map_err(ElectrumError::ClientError)
+    Ok(history.into_iter().map(|record| {
+        (
+            record.height,
+            record.tx_hash.to_string(),
+            record.fee.map(|fee| fee as i64),
+        )
+    }))
 }
 
 pub fn get_histories<I>(
@@ -101,24 +76,22 @@ pub fn get_histories<I>(
 where
     I: IntoIterator<Item = String>,
 {
-    let client = get_client()
-        .as_ref()
-        .ok_or(ElectrumError::ClientUnavailable)?;
+    let (scripts, histories) = with_client(|client, network| {
+        let scripts = addresses
+            .into_iter()
+            .map(|address| {
+                let script = address_to_script(&address, network)
+                    .map_err(|_| ElectrumError::InvalidAddress(address.to_string()))?;
+                Ok((address, script))
+            })
+            .collect::<Result<Vec<_>, ElectrumError>>()?;
 
-    let scripts = addresses
-        .into_iter()
-        .map(|address| {
-            let script = address_to_script(&address)
-                .map_err(|_| ElectrumError::InvalidAddress(address.to_string()))?;
-            Ok((address, script))
-        })
-        .collect::<Result<Vec<_>, ElectrumError>>()?;
+        let script_refs = scripts.iter().map(|s| s.1.as_script());
 
-    let script_refs = scripts.iter().map(|s| s.1.as_script());
+        let histories = client.batch_script_get_history(script_refs)?;
 
-    let histories = client
-        .batch_script_get_history(script_refs)
-        .map_err(ElectrumError::ClientError)?;
+        Ok((scripts, histories))
+    })?;
 
     let result = scripts
         .into_iter()
@@ -140,23 +113,17 @@ where
 pub fn list_unspent(
     address: &str,
 ) -> Result<impl Iterator<Item = (i64, String, i64, i64)>, ElectrumError> {
-    let client = get_client()
-        .as_ref()
-        .ok_or(ElectrumError::ClientUnavailable)?;
+    with_client(|client, network| {
+        let scripthash = address_to_script(address, network)?;
+        let uns = client.script_list_unspent(&scripthash)?;
 
-    let scripthash = address_to_script(address)?;
-
-    client
-        .script_list_unspent(&scripthash)
-        .map(|unspent_vec| {
-            unspent_vec.into_iter().map(|r| {
-                (
-                    r.height as i64,
-                    r.tx_hash.to_string(),
-                    r.tx_pos as i64,
-                    r.value as i64,
-                )
-            })
-        })
-        .map_err(ElectrumError::ClientError)
+        Ok(uns.into_iter().map(|r| {
+            (
+                r.height as i64,
+                r.tx_hash.to_string(),
+                r.tx_pos as i64,
+                r.value as i64,
+            )
+        }))
+    })
 }

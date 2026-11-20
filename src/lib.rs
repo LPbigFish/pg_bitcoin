@@ -1,7 +1,11 @@
 use electrum_client::ElectrumApi;
 use pgrx::prelude::*;
 
+use crate::client_wrapper::{with_client, ElectrumError};
+
 mod electrum;
+
+mod client_wrapper;
 
 mod config;
 
@@ -14,8 +18,8 @@ pub extern "C-unwind" fn _PG_init() {
     config::init();
 }
 
-fn match_electrum_error(e: electrum::ElectrumError) -> ! {
-    use electrum::ElectrumError::*;
+fn match_electrum_error(e: client_wrapper::ElectrumError) -> ! {
+    use client_wrapper::ElectrumError::*;
     match e {
         InvalidAddress(e_addr) => {
             pgrx::error!("Invalid address: {}", e_addr)
@@ -26,16 +30,18 @@ fn match_electrum_error(e: electrum::ElectrumError) -> ! {
         ClientError(err) => {
             pgrx::error!("Electrum client error: {:?}", err)
         }
+        ClientInUse => {
+            pgrx::error!("Electrum client is already in use")
+        }
+        BadExtensionConfiguration(option) => {
+            pgrx::error!("Extension configuration option unset: {}", option)
+        }
     }
 }
 
 #[pg_extern]
 fn bitcoin_ping() -> bool {
-    if let Some(client) = crate::electrum::get_client() {
-        client.ping().is_ok()
-    } else {
-        false
-    }
+    with_client(|c, _| c.ping().map_err(ElectrumError::ClientError)).is_ok()
 }
 
 #[pg_extern(name = "get_confirmed_balance")]
@@ -136,21 +142,11 @@ fn bitcoin_listunspent(
 #[cfg(any(test, feature = "pg_test"))]
 pub mod pg_test {
     #[cfg(test)]
-    use electrum_client::ElectrumApi;
 
     pub fn setup(_options: Vec<&str>) {}
 
     #[must_use]
     pub fn postgresql_conf_options() -> Vec<&'static str> {
         vec![]
-    }
-
-    #[test]
-    pub fn try_client() {
-        let client = crate::electrum::get_client();
-        assert!(client.is_some());
-        if let Some(client) = client {
-            assert!(client.ping().is_ok());
-        }
     }
 }
