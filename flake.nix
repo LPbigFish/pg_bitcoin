@@ -36,7 +36,7 @@
           packages = with pkgs; [
             bacon
             bison
-            cargo-pgrx_0_16_1
+            cargo-pgrx
             clang
             flex
             pkg-config
