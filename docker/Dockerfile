@@ -1,7 +1,9 @@
-FROM docker.io/bitcoin/bitcoin:31.1-alpine@sha256:6b7ab829b25388ef523c164f027e69bdac341e6b85b6c4794b9fd8839dcd91f1 AS regtest-tools
+FROM docker.io/bitcoin/bitcoin:31.1@sha256:da25cedc66b1daefff9f412ee196c901a899c3fa68a33b20849c3e08b5c40d63 AS regtest-tools
 
 USER root
-RUN apk add --no-cache bash python3
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash python3 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --chmod=755 scripts/init-regtest.py scripts/check-regtest.py /usr/local/bin/
 ENTRYPOINT []
 CMD ["/usr/local/bin/init-regtest.py"]
