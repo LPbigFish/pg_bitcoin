@@ -16,11 +16,7 @@ pub enum NetworkType {
     SIGNET,
 }
 
-trait ToBitcoinNetwork {
-    fn to_bitcoin_network(&self) -> Network;
-}
-
-impl ToBitcoinNetwork for NetworkType {
+impl NetworkType {
     fn to_bitcoin_network(&self) -> Network {
         match &self {
             NetworkType::MAINNET => Network::Bitcoin,

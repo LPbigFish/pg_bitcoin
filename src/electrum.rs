@@ -13,7 +13,7 @@ fn address_to_script(address: &str, network: Network) -> Result<ScriptBuf, Elect
 
 pub fn get_balance(address: &str) -> Result<(i64, i64), ElectrumError> {
     with_client(|client, network| {
-        let script_hash = address_to_script(address, network)?;
+        let script_hash = address_to_script(&address, network)?;
         let r = client.script_get_balance(&script_hash)?;
 
         Ok((r.confirmed as i64, r.unconfirmed))
@@ -55,7 +55,7 @@ pub fn get_history(
     address: &str,
 ) -> Result<impl Iterator<Item = (i32, String, Option<i64>)>, ElectrumError> {
     let history = with_client(|client, network| {
-        let scripthash = address_to_script(address, network)?;
+        let scripthash = address_to_script(&address, network)?;
         let r = client.script_get_history(&scripthash)?;
 
         Ok(r)
